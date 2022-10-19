@@ -129,16 +129,10 @@ def train(epoch):
         loss_func=torch.nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
         grad_maker.setup_loss_call(loss_func, dummy_y, t)
 
-        if args.optim != OPTIM_SGD:
-            y, loss = grad_maker.forward_and_backward()
-            if args.gradient_clipping:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), args.kl_clip)
-            optimizer.step()
-        elif args.optim == OPTIM_SGD:
-            y, loss = grad_maker.forward_and_backward()
-            if args.gradient_clipping:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), args.kl_clip)
-            optimizer.step()
+        y, loss = grad_maker.forward_and_backward()
+        if args.gradient_clipping:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), args.kl_clip)
+        optimizer.step()
 
         if batch_idx % args.log_interval == 0:
             if args.wandb:
@@ -255,17 +249,21 @@ if __name__=='__main__':
         normalize = transforms.Normalize(mean=[x / 255.0 for x in [125.3, 123.0, 113.9]],
                                              std=[x / 255.0 for x in [63.0, 62.1, 66.7]])
         train_transform = transforms.Compose([])
-        if args.data_augmentation:
+        if args.img_size != 32:
+            train_transform.transforms.append(transforms.RandomResizedCrop((args.img_size, args.img_size), scale=(0.05, 1.0)),)
+        else:
             train_transform.transforms.append(transforms.RandomCrop(32, padding=4))
-            train_transform.transforms.append(transforms.RandomHorizontalFlip())
+        train_transform.transforms.append(transforms.RandomHorizontalFlip())
         train_transform.transforms.append(transforms.ToTensor())
         train_transform.transforms.append(normalize)
         if args.cutout:
             train_transform.transforms.append(Cutout(n_holes=args.n_holes, length=args.length))
 
-        test_transform = transforms.Compose([
-            transforms.ToTensor(),
-            normalize])
+        test_transform = transforms.Compose([])
+        if args.img_size != 32:
+            test_transform.transforms.append(transforms.Resize((args.img_size,args.img_size)),)
+        test_transform.transforms.append(transforms.ToTensor())
+        test_transform.transforms.append(normalize)
 
         num_classes = 10
         train_dataset = datasets.CIFAR10(root='data/',
@@ -343,11 +341,11 @@ if __name__=='__main__':
     elif args.model in ['vit','cait','pit','t2t','swin']:
         model = create_model(img_size=32,n_classes=10,args=args)
     elif args.model == 'deit_tiny_imagenet':
-        model = timm.create_model('deit_tiny_patch16_224',pretrained=args.pretrained,num_classes=10)
+        model = timm.create_model('deit_tiny_patch16_224',pretrained=args.pretrained,num_classes=num_classes)
     elif args.model == 'deit_tiny_fractal':
         model = create_model_fractal('deit_tiny_patch16_224',
         pretrained=args.pretrained,
-        num_classes=10,
+        num_classes=num_classes,
         drop_rate=args.drop,
         drop_connect_rate=args.drop_connect,  # DEPRECATED, use drop_path
         drop_path_rate=args.drop_path,
@@ -359,7 +357,7 @@ if __name__=='__main__':
     if args.optim == OPTIM_ADAM:
         optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     elif args.optim == OPTIM_SHAMPOO:
-        config = ShampooHyperParams(weight_decay=args.weight_decay,preconditioning_compute_steps=interval,statistics_compute_steps=interval,num_iters=args.power_iter,error_torelance=0,nesterov=args.nesterov)
+        config = ShampooHyperParams(weight_decay=args.weight_decay,preconditioning_compute_steps=interval,statistics_compute_steps=interval,nesterov=args.nesterov)
         optimizer = Shampoo(model.parameters(),lr=args.lr,momentum=args.momentum,hyperparams=config)
     else:
         optimizer = torch.optim.SGD(model.parameters(), lr=args.lr,momentum=args.momentum, weight_decay=args.weight_decay,nesterov=args.nesterov)
