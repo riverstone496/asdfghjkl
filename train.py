@@ -22,7 +22,6 @@ import asdfghjkl as asdl
 from asdfghjkl import FISHER_EXACT, FISHER_MC, FISHER_EMP
 from asdfghjkl import SHAPE_FULL, SHAPE_LAYER_WISE, SHAPE_KRON, SHAPE_UNIT_WISE, SHAPE_DIAG
 from asdfghjkl.precondition import Shampoo,ShampooHyperParams
-from models.factory import create_model_fractal
 
 import pandas as pd
 import os
@@ -342,13 +341,15 @@ if __name__=='__main__':
 
     if args.optim == OPTIM_ADAM:
         optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    elif args.optim == OPTIM_SHAMPOO:
-        config = ShampooHyperParams(weight_decay=args.weight_decay,preconditioning_compute_steps=interval,statistics_compute_steps=interval,nesterov=args.nesterov)
-        optimizer = Shampoo(model.parameters(),lr=args.lr,momentum=args.momentum,hyperparams=config)
     else:
         optimizer = torch.optim.SGD(model.parameters(), lr=args.lr,momentum=args.momentum, weight_decay=args.weight_decay,nesterov=args.nesterov)
 
-    if args.optim == OPTIM_KFAC_MC:
+    if args.optim == OPTIM_SHAMPOO:
+        config = asdl.ShampooGradientConfig(preconditioner_upd_interval=args.interval,
+                                            curvature_upd_interval=args.interval,
+                                            ema_decay=-1)
+        grad_maker = asdl.ShampooGradientMaker(model,config)
+    elif args.optim == OPTIM_KFAC_MC:
         config = asdl.NaturalGradientConfig(data_size=args.batch_size,
                                             fisher_type=FISHER_MC,
                                             damping=args.damping,
