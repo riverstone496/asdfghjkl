@@ -21,9 +21,7 @@ import warmup_scheduler
 import asdfghjkl as asdl
 from asdfghjkl import FISHER_EXACT, FISHER_MC, FISHER_EMP
 from asdfghjkl import SHAPE_FULL, SHAPE_LAYER_WISE, SHAPE_KRON, SHAPE_UNIT_WISE, SHAPE_DIAG
-from asdfghjkl.precondition import Shampoo,ShampooHyperParams
 
-import pandas as pd
 import os
 import timm
 

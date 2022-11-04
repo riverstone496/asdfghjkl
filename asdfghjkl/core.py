@@ -46,7 +46,7 @@ def extend(model,
                     with stream_cxt:
                         cxt.call_operations_in_forward(_module, in_data[0].detach(), out_data.detach())
                 handles.append(module.register_forward_hook(forward_hook))
-            if has_bwd_op or has_bwd_op_with_inputs:
+            if has_bwd_op:
                 def backward_hook(_module, unused, out_grads):
                     with stream_cxt:
                         try:
@@ -54,7 +54,7 @@ def extend(model,
                         except NameError:
                             # context resource is already released.
                             pass
-                handles.append(module.register_full_backward_hook(backward_hook))
+                handles.append(module.register_backward_hook(backward_hook))
         if not cxt.is_operation_registered(model):
             # register empty operation for parent model
             cxt.register_operation(model, Operation(model, []))

@@ -29,6 +29,7 @@ OP_RFIM_SOFTMAX = 'rfim_softmax'  # relative FIM for softmax
 # compute Gram matrix
 OP_GRAM_DIRECT = 'gram_direct'  # direct
 OP_GRAM_HADAMARD = 'gram_hada'  # Hadamard-factored
+OP_SKETCHED_GRAM = 'sketched_gram'  # apply sketching matrix to gram
 
 
 OP_BATCH_GRADS = 'batch_grads'  # compute batched gradients (per-example gradients)
@@ -50,6 +51,7 @@ ALL_OPS = [OP_FULL_COV, OP_FULL_CVP,
            OP_RFIM_RELU, OP_RFIM_SOFTMAX,
            OP_GRAM_DIRECT, OP_GRAM_HADAMARD, OP_BATCH_GRADS,
            OP_SAVE_INPUTS, OP_SAVE_OUTPUTS, OP_SAVE_OUTGRADS,
+           OP_SKETCHED_GRAM,
            OP_MEAN_INPUTS, OP_MEAN_OUTPUTS, OP_MEAN_OUTGRADS,
            OP_OUT_SPATIAL_SIZE, OP_BFGS_KRON_S_AS,
            OP_COV_KFE]
@@ -63,7 +65,8 @@ BWD_OPS_WITH_INPUTS = [OP_COV, OP_COV_INV, OP_CVP,
                        OP_COV_UNIT_WISE, OP_COV_UNIT_WISE_INV,
                        OP_COV_DIAG, OP_COV_DIAG_INV,
                        OP_GRAM_HADAMARD, OP_GRAM_DIRECT,
-                       OP_BATCH_GRADS, OP_COV_KFE]
+                       OP_BATCH_GRADS, OP_COV_KFE,
+                       OP_SKETCHED_GRAM]
 BWD_OPS = [OP_SAVE_OUTGRADS,
            OP_COV_KRON, OP_COV_SWIFT_KRON,
            OP_RFIM_RELU, OP_RFIM_SOFTMAX,
@@ -94,6 +97,8 @@ class Operation:
         self._op_results = {}
         self._damping = 1.e-7
         self._cov_scale = 1.
+        self._sketching_size = 256
+        self._truncated_rank = None
 
     def accumulate_result(self, value, *keys, extend=False):
         """
@@ -153,6 +158,12 @@ class Operation:
 
     def set_cov_scale(self, value):
         self._cov_scale = value
+
+    def set_sketching_size(self, value):
+        self._sketching_size = value
+
+    def set_truncated_rank(self, value):
+        self._truncated_rank = value
 
     def forward_post_process(self, in_data: torch.Tensor, out_data: torch.Tensor):
         module = self._module
@@ -344,6 +355,8 @@ class Operation:
                     self.accumulate_result(rst, OP_BATCH_GRADS, 'bias')
             elif op_name == OP_MEAN_OUTGRADS:
                 self.accumulate_result(self.out_grads_mean(module, out_grads), OP_MEAN_OUTGRADS)
+            elif op_name == OP_SKETCHED_GRAM:
+                self.accumulate_result(self.random_sketch_and_gram(module, in_data, out_grads), OP_SKETCHED_GRAM)
 
     @staticmethod
     def preprocess_in_data(module, in_data, out_data):
@@ -477,6 +490,30 @@ class Operation:
     @staticmethod
     def bfgs_kron_s_As(module, in_data):
         raise NotImplementedError
+
+    def random_sketch_and_gram(self, module, in_data, out_grads):
+        """
+        in_data: n x d_in (x r)
+        out_grads: n x d_out (x r)
+        """
+        sketching_size = self._sketching_size
+
+        def sketch(tensor):
+            dim = tensor.shape[1]
+            if sketching_size < dim:
+                device = 'cuda' if torch.cuda.is_available() else 'cpu'
+                indices = torch.randperm(dim, device=device)[:sketching_size]
+                ratio = dim / sketching_size
+                return torch.index_select(tensor, dim=1, index=indices).mul(ratio), indices
+            else:
+                return tensor, None
+
+        sub_in_data, in_indices = sketch(in_data)  # n x d_in_sub (x r)
+        sub_out_grads, out_indices = sketch(out_grads)  # n x d_out_sub (x r)
+        gram_A = self.gram_A(module, sub_in_data)  # n x n
+        gram_B = self.gram_B(module, sub_out_grads)  # n x n
+        gram = gram_A.mul(gram_B)  # n x n
+        return (in_data, out_grads), (sub_in_data, sub_out_grads), (in_indices, out_indices), gram
 
 
 class OperationContext:
@@ -865,6 +902,9 @@ class OperationContext:
     def bfgs_kron_s_As(self, module):
         return self.get_result(module, OP_BFGS_KRON_S_AS)
 
+    def sketched_inputs_outgrads_gram(self, module):
+        return self.get_result(module, OP_SKETCHED_GRAM)
+
     def set_damping(self, value):
         for operation in self._operations.values():
             operation.set_damping(value)
@@ -872,3 +912,11 @@ class OperationContext:
     def set_cov_scale(self, value):
         for operation in self._operations.values():
             operation.set_cov_scale(value)
+
+    def set_sketching_size(self, value):
+        for operation in self._operations.values():
+            operation.set_sketching_size(value)
+
+    def set_truncated_rank(self, value):
+        for operation in self._operations.values():
+            operation.set_truncated_rank(value)
