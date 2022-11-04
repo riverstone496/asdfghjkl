@@ -1,11 +1,4 @@
-# run train.py --dataset cifar10 --model resnet18 --data_augmentation --cutout --length 16
-# run train.py --dataset cifar100 --model resnet18 --data_augmentation --cutout --length 8
-# run train.py --dataset svhn --model wideresnet --learning_rate 0.01 --epochs 160 --cutout --length 20
-
-import pdb
 import argparse
-import numpy as np
-from tqdm import tqdm
 import time
 
 import torch
@@ -340,17 +333,10 @@ if __name__=='__main__':
                              dropRate=0.3)
     elif args.model in ['vit','cait','pit','t2t','swin']:
         model = create_model(img_size=32,n_classes=10,args=args)
-    elif args.model == 'deit_tiny_imagenet':
-        model = timm.create_model('deit_tiny_patch16_224',pretrained=args.pretrained,num_classes=num_classes)
-    elif args.model == 'deit_tiny_fractal':
-        model = create_model_fractal('deit_tiny_patch16_224',
-        pretrained=args.pretrained,
-        num_classes=num_classes,
-        drop_rate=args.drop,
-        drop_connect_rate=args.drop_connect,  # DEPRECATED, use drop_path
-        drop_path_rate=args.drop_path,
-        drop_block_rate=args.drop_block,
-        pretrained_path=args.pretrained_path)
+    elif args.model == 'vit_tiny_imagenet':
+        model = timm.create_model('vit_tiny_patch16_224',pretrained=args.pretrained,num_classes=num_classes)
+    elif args.model == 'mixer_base_fractal':
+        model = timm.create_model('mixer_b16_224',pretrained=args.pretrained,num_classes=num_classes)
 
     model = model.cuda()
 
